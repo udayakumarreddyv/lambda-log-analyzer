@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lambda Log Analyzer with CloudWatch and S3 monitoring'
+
+Parameters:
+  LogBucket:
+    Type: String
+    Description: S3 bucket name for log files
+    Default: my-log-bucket
+    
+  LogPrefix:
+    Type: String
+    Description: S3 prefix for log files
+    Default: logs/
+    
+  EmailAddress:
+    Type: String
+    Description: Email address for alerts
+    Default: admin@company.com
+    
+  ScheduleExpression:
+    Type: String
+    Description: CloudWatch Events schedule expression
+    Default: 'rate(15 minutes)'
+    
+  LambdaTimeout:
+    Type: Number
+    Description: Lambda function timeout in seconds
+    Default: 300
+    MinValue: 60
+    MaxValue: 900
+
+Resources:
+  # SNS Topic for alerts
+  LogAnalyzerTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: log-analyzer-alerts
+      DisplayName: Log Analyzer Alerts
+      
+  # SNS Subscription for email alerts
+  LogAnalyzerEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref LogAnalyzerTopic
+      Endpoint: !Ref EmailAddress
+
+  # IAM Role for Lambda function
+  LogAnalyzerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LogAnalyzerLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LogAnalyzerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # CloudWatch Logs permissions
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:FilterLogEvents
+                  - logs:GetLogEvents
+                Resource: '*'
+              
+              # S3 permissions
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${LogBucket}'
+                  - !Sub 'arn:aws:s3:::${LogBucket}/*'
+              
+              # SNS permissions
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref LogAnalyzerTopic
+              
+              # SES permissions
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+
+  # Lambda function
+  LogAnalyzerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: log-analyzer
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              body: JSON.stringify('Placeholder - deploy your code')
+            };
+          };
+      Role: !GetAtt LogAnalyzerRole.Arn
+      Timeout: !Ref LambdaTimeout
+      MemorySize: 512
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref LogAnalyzerTopic
+          LOG_BUCKET: !Ref LogBucket
+          LOG_PREFIX: !Ref LogPrefix
+          EMAIL_FROM: !Ref EmailAddress
+          EMAIL_TO: !Ref EmailAddress
+          AWS_REGION: !Ref 'AWS::Region'
+          MAX_ERRORS: '10'
+          TIME_WINDOW_MINUTES: '15'
+          MAX_AVG_RESPONSE_TIME: '5000'
+          MAX_P95_RESPONSE_TIME: '10000'
+          MAX_MEMORY_PERCENT: '85'
+          MAX_DISK_PERCENT: '90'
+          ALERT_COOLDOWN_MINUTES: '30'
+          LOOKBACK_MINUTES: '60'
+          BATCH_SIZE: '1000'
+
+  # CloudWatch Events Rule for periodic execution
+  LogAnalyzerSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: log-analyzer-schedule
+      Description: Schedule for Log Analyzer Lambda function
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt LogAnalyzerFunction.Arn
+          Id: LogAnalyzerTarget
+
+  # Permission for CloudWatch Events to invoke Lambda
+  LogAnalyzerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LogAnalyzerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt LogAnalyzerSchedule.Arn
+
+  # CloudWatch Log Group for Lambda function
+  LogAnalyzerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${LogAnalyzerFunction}'
+      RetentionInDays: 14
+
+  # CloudWatch Dashboard
+  LogAnalyzerDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: LogAnalyzer
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Lambda", "Duration", "FunctionName", "${LogAnalyzerFunction}" ],
+                  [ ".", "Errors", ".", "." ],
+                  [ ".", "Invocations", ".", "." ]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}",
+                "title": "Lambda Metrics"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 6,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "query": "SOURCE '/aws/lambda/${LogAnalyzerFunction}'\n| fields @timestamp, @message\n| sort @timestamp desc\n| limit 100",
+                "region": "${AWS::Region}",
+                "title": "Lambda Logs"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  LambdaFunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref LogAnalyzerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunction'
+      
+  SNSTopicArn:
+    Description: ARN of the SNS topic for alerts
+    Value: !Ref LogAnalyzerTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-SNSTopic'
+      
+  DashboardURL:
+    Description: URL to the CloudWatch Dashboard
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${LogAnalyzerDashboard}'
+    
+  ScheduleExpression:
+    Description: Schedule expression for the Lambda function
+    Value: !Ref ScheduleExpression

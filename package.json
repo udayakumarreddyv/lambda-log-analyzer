@@ -1,0 +1,53 @@
+{
+  "name": "lambda-log-analyzer",
+  "version": "1.0.0",
+  "description": "AWS Lambda function to analyze logs from S3 and CloudWatch for errors and threshold violations",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "deploy": "zip -r lambda-log-analyzer.zip . -x '*.git*' 'node_modules/.cache/*' 'test/*'",
+    "lint": "eslint *.js",
+    "start": "node index.js"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "cloudwatch",
+    "s3",
+    "log-analysis",
+    "monitoring",
+    "alerts"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.450.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.450.0",
+    "@aws-sdk/client-sns": "^3.450.0",
+    "@aws-sdk/client-ses": "^3.450.0",
+    "moment": "^2.29.4"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.50.0",
+    "@aws-sdk/types": "^3.450.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/test/**/*.test.js"],
+    "collectCoverage": true,
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov", "html"],
+    "collectCoverageFrom": [
+      "*.js",
+      "!index.js",
+      "!test-local.js",
+      "!coverage/**",
+      "!node_modules/**"
+    ],
+    "setupFilesAfterEnv": ["<rootDir>/test/setup.js"]
+  }
+}
